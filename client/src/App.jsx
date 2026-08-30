@@ -43515,8 +43515,10 @@ function FractionAddApp({ onBack }) {
   const [finished, setFinished] = useState(false)
   // Current question object from API
   const [question, setQuestion] = useState(null)
-  // User's answer as a string: "3/4" or "2 3/4" for mixed numbers
-  const [answer, setAnswer] = useState('')
+  // Stacked fraction input state variables
+  const [ansWhole, setAnsWhole] = useState('')
+  const [ansNum, setAnsNum] = useState('')
+  const [ansDen, setAnsDen] = useState('')
   // Score tracking
   const [score, setScore] = useState(0)
   const [questionNumber, setQuestionNumber] = useState(0)
@@ -43548,7 +43550,9 @@ function FractionAddApp({ onBack }) {
       const r = await fetch(`${API}/fractionadd-api/question?difficulty=${effectiveDiff()}`)
       const data = await r.json()
       setQuestion(data)
-      setAnswer('')
+      setAnsWhole('')
+      setAnsNum('')
+      setAnsDen('')
       setFeedback('')
       setIsCorrect(null)
       setRevealed(false)
@@ -43609,33 +43613,14 @@ function FractionAddApp({ onBack }) {
   }, [revealed, isCorrect, questionNumber])
 
   /**
-   * parseAnswer(str): Parse user's answer string into {whole, num, den}
-   * Accepts formats: "3/4", "2 3/4", "5", "2 5"
-   * Returns null if invalid.
-   */
-  const parseAnswer = (str) => {
-    const s = str.trim()
-    if (!s) return null
-    // Try "W N/D" (mixed number)
-    const mixedMatch = s.match(/^(-?\d+)\s+(-?\d+)\/(\d+)$/)
-    if (mixedMatch) return { whole: Number(mixedMatch[1]), num: Number(mixedMatch[2]), den: Number(mixedMatch[3]) }
-    // Try "N/D" (simple fraction)
-    const fracMatch = s.match(/^(-?\d+)\/(\d+)$/)
-    if (fracMatch) return { whole: 0, num: Number(fracMatch[1]), den: Number(fracMatch[2]) }
-    // Try plain number "N" (whole number, den=1)
-    const numMatch = s.match(/^(-?\d+)$/)
-    if (numMatch) return { whole: 0, num: Number(numMatch[1]), den: 1 }
-    return null
-  }
-
-  /**
    * handleSubmit(): Validate and submit the user's answer.
-   * Parses the text input (e.g., "3/4" or "2 3/4"), then POSTs to /fractionadd-api/check.
+   * Uses separate state variables for whole, numerator, and denominator, then POSTs to /fractionadd-api/check.
    */
   const handleSubmit = async () => {
     if (!question || revealed) return
-    const parsed = parseAnswer(answer)
-    if (!parsed || parsed.den === 0) return
+    const numVal = parseInt(ansNum, 10)
+    const denVal = parseInt(ansDen, 10)
+    if (isNaN(numVal) || isNaN(denVal) || denVal === 0) return
 
     const timeTaken = timer.stop()
     // Default to '+' if the server didn't include an op (back-compat with older API)
@@ -43644,14 +43629,15 @@ function FractionAddApp({ onBack }) {
       n1: question.n1, d1: question.d1,
       n2: question.n2, d2: question.d2,
       op,
-      ansNum: parsed.num,
-      ansDen: parsed.den,
+      ansNum: numVal,
+      ansDen: denVal,
       mixed: question.mixed || false,
     }
     if (question.mixed) {
       payload.w1 = question.w1
       payload.w2 = question.w2
-      payload.ansWhole = parsed.whole
+      const wholeVal = ansWhole === '' ? 0 : parseInt(ansWhole, 10)
+      payload.ansWhole = isNaN(wholeVal) ? 0 : wholeVal
     }
 
     try {
@@ -43674,9 +43660,13 @@ function FractionAddApp({ onBack }) {
         ? `Correct! ${prompt} = ${data.display}`
         : `Incorrect. ${prompt} = ${data.display}`)
 
+      const userAnsStr = question.mixed
+        ? `${ansWhole || 0} ${ansNum}/${ansDen}`
+        : `${ansNum}/${ansDen}`
+
       setResults(prev => [...prev, {
         prompt,
-        userAnswer: answer.trim(),
+        userAnswer: userAnsStr,
         correctAnswer: data.display,
         correct: data.correct,
         time: timeTaken
@@ -43800,17 +43790,44 @@ function FractionAddApp({ onBack }) {
               </div>
             )}
 
-            {/* Single text input — type answer as "3/4" or "2 3/4" */}
-            <input
-              className="answer-input"
-              type="text"
-              value={answer}
-              onChange={e => { if (!revealed) setAnswer(e.target.value) }}
-              disabled={revealed}
-              placeholder={question.mixed ? 'e.g. 2 3/4' : 'e.g. 3/4'}
-              onKeyDown={handleKeyDown}
-              autoFocus
-            />
+            <div className="fraction-answer-area">
+              {question.mixed && (
+                <input
+                  className="fraction-whole-input"
+                  type="text"
+                  pattern="-?\d*"
+                  placeholder="w"
+                  value={ansWhole}
+                  onChange={e => { if (!revealed) { const v = e.target.value; if (v === '' || /^-?\d*$/.test(v)) setAnsWhole(v) } }}
+                  disabled={revealed}
+                  onKeyDown={handleKeyDown}
+                />
+              )}
+              <div className="fraction-input-stack">
+                <input
+                  className="fraction-field frac-num-input"
+                  type="text"
+                  pattern="-?\d*"
+                  placeholder="num"
+                  value={ansNum}
+                  onChange={e => { if (!revealed) { const v = e.target.value; if (v === '' || /^-?\d*$/.test(v)) setAnsNum(v) } }}
+                  disabled={revealed}
+                  onKeyDown={handleKeyDown}
+                  autoFocus={!question.mixed}
+                />
+                <div className="fraction-input-bar" />
+                <input
+                  className="fraction-field frac-den-input"
+                  type="text"
+                  pattern="\d*"
+                  placeholder="den"
+                  value={ansDen}
+                  onChange={e => { if (!revealed) { const v = e.target.value; if (/^\d*$/.test(v)) setAnsDen(v) } }}
+                  disabled={revealed}
+                  onKeyDown={handleKeyDown}
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -43819,7 +43836,7 @@ function FractionAddApp({ onBack }) {
         <div className="button-row">
           {!revealed ? (
             <>
-              <button onClick={handleSubmit} disabled={loading || !answer.trim()}>Submit</button>
+              <button onClick={handleSubmit} disabled={loading || ansNum === '' || !ansDen || ansDen === '0'}>Submit</button>
               <button onClick={handleSolve} disabled={loading} style={{ background: 'transparent', border: '1px solid var(--clr-accent)', color: 'var(--clr-accent)' }}>Solve</button>
             </>
           ) : (
